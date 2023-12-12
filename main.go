@@ -76,6 +76,7 @@ func main() {
 			fmt.Println(err)
 			os.Exit(1)
 		}
+		fid.Close()
 	} // else defaults
 
 	if idEnv := os.Getenv("CHAIN"); idEnv != "" {
