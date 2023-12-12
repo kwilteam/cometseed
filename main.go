@@ -70,13 +70,16 @@ func main() {
 
 	cfg := defaultConfig()
 	configFile := filepath.Join(rootDir, "config.toml")
-	if fid, err := os.Open(configFile); err != nil && !os.IsNotExist(err) {
+	if fid, err := os.Open(configFile); err == nil {
 		_, err = toml.NewDecoder(fid).Decode(&cfg) // _, err = toml.DecodeFile(configFile, &cfg)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
 		fid.Close()
+	} else if !os.IsNotExist(err) {
+		fmt.Println(err)
+		os.Exit(1)
 	} // else defaults
 
 	if idEnv := os.Getenv("CHAIN"); idEnv != "" {
