@@ -97,7 +97,7 @@ func main() {
 		cancel()
 	}()
 
-	if err = crawler.Crawl(ctx, rootDir, logger, (*crawler.Conf)(cfg)); err != nil {
+	if _, err = crawler.Crawl(ctx, rootDir, logger, (*crawler.Conf)(cfg)); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

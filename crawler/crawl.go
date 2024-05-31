@@ -26,11 +26,11 @@ type Conf struct {
 	MaxNumOutboundPeers int
 }
 
-func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) error {
+func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (pex.AddrBook, error) {
 	nodeKeyFilePath := filepath.Join(rootDir, cfg.NodeKeyFile)
 	nodeKey, err := p2p.LoadOrGenNodeKey(nodeKeyFilePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	chainID, nodeID := cfg.ChainID, nodeKey.ID()
@@ -48,7 +48,7 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) er
 
 	addr, err := p2p.NewNetAddressString(p2p.IDAddressString(nodeInfo.DefaultNodeID, nodeInfo.ListenAddr))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	p2pConf := config.DefaultP2PConfig()
@@ -59,7 +59,7 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) er
 	// Listen for incoming p2p
 	transport := p2p.NewMultiplexTransport(nodeInfo, *nodeKey, p2p.MConnConfig(p2pConf))
 	if err := transport.Listen(*addr); err != nil {
-		return err
+		return nil, err
 	}
 	defer transport.Close()
 
@@ -86,7 +86,7 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) er
 	sw.SetNodeInfo(nodeInfo)
 
 	if err = sw.Start(); err != nil {
-		return err
+		return nil, err
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -102,11 +102,11 @@ loop:
 			book.Save()
 			logger.Info("Stopping p2p switch")
 			if err := sw.Stop(); err != nil {
-				return err
+				return nil, err
 			}
 			break loop
 		}
 	}
 
-	return nil
+	return book, nil
 }
