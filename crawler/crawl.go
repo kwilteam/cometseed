@@ -26,7 +26,18 @@ type Conf struct {
 	MaxNumOutboundPeers int
 }
 
-func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (pex.AddrBook, error) {
+type Crawler struct {
+	addrBook  pex.AddrBook
+	nodeInfo  p2p.DefaultNodeInfo
+	nodeKey   *p2p.NodeKey
+	transport *p2p.MultiplexTransport
+	sw        *p2p.Switch
+	logger    log.Logger
+}
+
+func NewCrawler(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (*Crawler, error) {
+	logger.Info("Starting crawler", "root dir", rootDir, "config", cfg)
+	// Node key
 	nodeKeyFilePath := filepath.Join(rootDir, cfg.NodeKeyFile)
 	nodeKey, err := p2p.LoadOrGenNodeKey(nodeKeyFilePath)
 	if err != nil {
@@ -36,6 +47,7 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (p
 	chainID, nodeID := cfg.ChainID, nodeKey.ID()
 	logger.Info("config", "node ID", nodeID, "chain", chainID, "listen addr", cfg.ListenAddress)
 
+	// Node Info
 	nodeInfo := p2p.DefaultNodeInfo{
 		ProtocolVersion: p2p.NewProtocolVersion(version.P2PProtocol, version.BlockProtocol, 0),
 		DefaultNodeID:   nodeID,
@@ -46,24 +58,13 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (p
 		Moniker:         chainID + "-seeder",
 	}
 
-	addr, err := p2p.NewNetAddressString(p2p.IDAddressString(nodeInfo.DefaultNodeID, nodeInfo.ListenAddr))
-	if err != nil {
-		return nil, err
-	}
-
 	p2pConf := config.DefaultP2PConfig()
 	p2pConf.AllowDuplicateIP = true
 	p2pConf.MaxNumInboundPeers = cfg.MaxNumInboundPeers
 	p2pConf.MaxNumOutboundPeers = cfg.MaxNumOutboundPeers
 
-	// Listen for incoming p2p
 	transport := p2p.NewMultiplexTransport(nodeInfo, *nodeKey, p2p.MConnConfig(p2pConf))
-	if err := transport.Listen(*addr); err != nil {
-		return nil, err
-	}
-	defer transport.Close()
 
-	// Load address book
 	filteredLogger := log.NewFilter(logger, log.AllowInfo())
 	addrBookFilePath := filepath.Join(rootDir, cfg.AddrBookFile)
 	book := pex.NewAddrBook(addrBookFilePath, cfg.AddrBookStrict)
@@ -77,7 +78,7 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (p
 	})
 	pexReactor.SetLogger(filteredLogger.With("module", "pex"))
 
-	// Start p2p switch
+	// Create p2p switch
 	sw := p2p.NewSwitch(p2pConf, transport)
 	sw.SetLogger(filteredLogger.With("module", "switch"))
 	sw.SetNodeKey(nodeKey)
@@ -85,8 +86,34 @@ func Crawl(ctx context.Context, rootDir string, logger log.Logger, cfg *Conf) (p
 	sw.AddReactor("pex", pexReactor)
 	sw.SetNodeInfo(nodeInfo)
 
-	if err = sw.Start(); err != nil {
-		return nil, err
+	crawler := &Crawler{
+		addrBook:  book,
+		nodeInfo:  nodeInfo,
+		nodeKey:   nodeKey,
+		transport: transport,
+		sw:        sw,
+		logger:    logger,
+	}
+
+	return crawler, nil
+}
+
+func (c *Crawler) Crawl(ctx context.Context) error {
+	nodeInfo := c.nodeInfo
+	addr, err := p2p.NewNetAddressString(p2p.IDAddressString(nodeInfo.DefaultNodeID, nodeInfo.ListenAddr))
+	if err != nil {
+		return err
+	}
+
+	// Listen for incoming p2p
+	if err := c.transport.Listen(*addr); err != nil {
+		return err
+	}
+	defer c.transport.Close()
+
+	// Start p2p switch
+	if err = c.sw.Start(); err != nil {
+		return err
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -96,17 +123,18 @@ loop:
 	for {
 		select {
 		case <-ticker.C:
-			logger.Debug("", "peers", sw.Peers().List())
+			c.logger.Debug("", "peers", c.sw.Peers().List())
+			c.addrBook.Save()
 		case <-ctx.Done():
-			logger.Info("Saving address book")
-			book.Save()
-			logger.Info("Stopping p2p switch")
-			if err := sw.Stop(); err != nil {
-				return nil, err
+			c.logger.Info("Saving address book")
+			c.addrBook.Save()
+			c.logger.Info("Stopping p2p switch")
+			if err := c.sw.Stop(); err != nil {
+				return err
 			}
 			break loop
 		}
 	}
 
-	return book, nil
+	return nil
 }
