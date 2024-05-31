@@ -86,6 +86,7 @@ func main() {
 
 	flag.StringVar(&cfg.ChainID, "chain-id", cfg.ChainID, "chain ID")
 	flag.StringVar(&cfg.Seeds, "seeds", cfg.Seeds, "seed nodes")
+	flag.StringVar(&cfg.ListenAddress, "listen-addr", cfg.ListenAddress, "P2P listen address")
 	flag.Parse()
 
 	signalChan := make(chan os.Signal, 1)
@@ -97,7 +98,13 @@ func main() {
 		cancel()
 	}()
 
-	if _, err = crawler.Crawl(ctx, rootDir, logger, (*crawler.Conf)(cfg)); err != nil {
+	crl, err := crawler.NewCrawler(ctx, rootDir, logger, (*crawler.Conf)(cfg))
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	if err = crl.Crawl(ctx); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
