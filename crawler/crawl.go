@@ -110,3 +110,7 @@ loop:
 
 	return book, nil
 }
+
+func (c *Crawler) AddrBook() pex.AddrBook {
+	return c.addrBook
+}
